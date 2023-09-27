@@ -13,7 +13,9 @@ return [
         'delete'         => 'deleted',
         'sortby'         => 'content',
         'searchFields'   => 'library',
-        'iconfile'       => 'EXT:h5p/Resources/Public/Icon/h5p.gif',
+        'typeicon_classes' => [
+            'default' => 'h5p-logo'
+        ],
     ],
     'columns'  => [
         'content'   => [

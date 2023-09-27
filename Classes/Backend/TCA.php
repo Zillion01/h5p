@@ -1,5 +1,7 @@
 <?php
 namespace MichielRoos\H5p\Backend;
+use Doctrine\DBAL\Exception;
+use TYPO3\CMS\Backend\Utility\BackendUtility;
 use TYPO3\CMS\Core\Database\ConnectionPool;
 use TYPO3\CMS\Core\Database\Query\Restriction\DeletedRestriction;
 use TYPO3\CMS\Core\Utility\GeneralUtility;
@@ -13,9 +15,10 @@ class TCA
      * @param $parentObject
      * @throws \Exception
      */
-    public function getConfigSettingTitle(&$parameters, $parentObject)
+    public function getConfigSettingTitle(&$parameters): void
     {
-        $row = $parameters['row'];
+        $row = BackendUtility::getRecord($parameters['table'], $parameters['row']['uid']);
+
         if ($row['config_key'] === 'content_type_cache_updated_at') {
             $date = \DateTime::createFromFormat('U', (int)$row['config_value']);
             $parameters['title'] = sprintf(
@@ -38,7 +41,7 @@ class TCA
      * @param $parameters
      * @param $parentObject
      */
-    public function getLibraryTitle(&$parameters, $parentObject)
+    public function getLibraryTitle(&$parameters)
     {
 
         $row = $parameters['row'];
@@ -61,10 +64,13 @@ class TCA
      *
      * @param $parameters
      * @param $parentObject
+     * @throws Exception
      */
-    public function getContentTitle(&$parameters, $parentObject)
+    public function getContentTitle(&$parameters): void
     {
-        $libraryRow = $this->getLibraryByUid($parameters['row']['library']);
+        $record = BackendUtility::getRecord($parameters['table'], $parameters['row']['uid']);
+
+        $libraryRow = $this->getLibraryByUid($record['library']);
 
         $updatedAt = \DateTime::createFromFormat('U', $libraryRow['updated_at'] ?? 0);
 
@@ -84,8 +90,9 @@ class TCA
      *
      * @param $uid
      * @return mixed
+     * @throws Exception
      */
-    protected function getLibraryByUid($uid)
+    protected function getLibraryByUid($uid): mixed
     {
         $queryBuilder = GeneralUtility::makeInstance(ConnectionPool::class)->getQueryBuilderForTable('tx_h5p_domain_model_library');
         $queryBuilder->getRestrictions()->removeAll()->add(GeneralUtility::makeInstance(DeletedRestriction::class));
@@ -94,16 +101,8 @@ class TCA
             'uid',
             $queryBuilder->createNamedParameter($uid, \PDO::PARAM_INT)
         ))->executeQuery()
-            ->fetch();
+            ->fetchAssociative();
         return $libraryRow;
-    }
-
-    /**
-     * @return \TYPO3\CMS\Core\Database\DatabaseConnection $dbHandle
-     */
-    protected function getDBHandle()
-    {
-        return $GLOBALS['TYPO3_DB'];
     }
 
     /**

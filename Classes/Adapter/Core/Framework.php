@@ -2,7 +2,7 @@
 
 namespace MichielRoos\H5p\Adapter\Core;
 
-use GuzzleHttp\Exception\GuzzleException;
+use H5PCore;
 use MichielRoos\H5p\Domain\Model\CachedAsset;
 use MichielRoos\H5p\Domain\Model\ConfigSetting;
 use MichielRoos\H5p\Domain\Model\Content;
@@ -25,7 +25,7 @@ use MichielRoos\H5p\Utility\MaintenanceUtility;
 use stdClass;
 use TYPO3\CMS\Core\Database\ConnectionPool;
 use TYPO3\CMS\Core\Database\Query\Restriction\DeletedRestriction;
-use TYPO3\CMS\Core\Http\Client\GuzzleClientFactory;
+use TYPO3\CMS\Core\Http\RequestFactory;
 use TYPO3\CMS\Core\Information\Typo3Version;
 use TYPO3\CMS\Core\Localization\LanguageService;
 use TYPO3\CMS\Core\Resource\ResourceFactory;
@@ -49,7 +49,7 @@ class Framework implements \H5PFrameworkInterface, SingletonInterface
     /**
      * @var string
      */
-    public static $version = '0.3.0';
+    public static string $version = '0.3.0';
 
     /**
      * @var ContentTypeCacheEntryRepository
@@ -57,7 +57,7 @@ class Framework implements \H5PFrameworkInterface, SingletonInterface
     protected $contentTypeCacheEntryRepository;
 
     /**
-     * @var \H5PCore
+     * @var H5PCore
      */
     protected $h5pCore;
 
@@ -72,7 +72,7 @@ class Framework implements \H5PFrameworkInterface, SingletonInterface
      *
      * @var string
      */
-    protected $uploadedH5pFolderPath;
+    protected string $uploadedH5pFolderPath;
 
     /**
      * Path to a temporary H5P file.
@@ -80,7 +80,7 @@ class Framework implements \H5PFrameworkInterface, SingletonInterface
      *
      * @var string
      */
-    protected $uploadedH5pPath;
+    protected string $uploadedH5pPath;
 
     /**
      * @var array
@@ -88,14 +88,9 @@ class Framework implements \H5PFrameworkInterface, SingletonInterface
     private $messages = [];
 
     /**
-     * @var mixed|\TYPO3\CMS\Core\Database\DatabaseConnection
-     */
-    private $databaseLink;
-
-    /**
      * @var string
      */
-    private $localTmpFile;
+    private string $localTmpFile;
 
     /**
      * @var ResourceStorage
@@ -111,11 +106,6 @@ class Framework implements \H5PFrameworkInterface, SingletonInterface
      * @var LibraryRepository|object
      */
     private $libraryRepository;
-
-    /**
-     * @var ObjectManager
-     */
-    private $objectManager;
 
     /**
      * @var ConfigSettingRepository|object
@@ -147,18 +137,19 @@ class Framework implements \H5PFrameworkInterface, SingletonInterface
      */
     private $cachedAssetRepository;
 
+    private RequestFactory $requestFactory;
+
     /**
      * H5pFrameworkService constructor.
      *
      * @param ResourceStorage $storage
      *
-     * @throws \TYPO3\CMS\Extbase\Object\Exception
-     * @throws \TYPO3\CMS\Extbase\Object\Exception
      */
-    public function __construct(ResourceStorage $storage = null)
+    public function __construct(
+        ResourceStorage $storage = null
+    )
     {
         $this->storage                         = $storage;
-        $this->databaseLink                    = $GLOBALS['TYPO3_DB'];
         $this->persistenceManager              = GeneralUtility::makeInstance(PersistenceManager::class);
         $this->cachedAssetRepository           = GeneralUtility::makeInstance(CachedAssetRepository::class);
         $this->configSettingRepository         = GeneralUtility::makeInstance(ConfigSettingRepository::class);
@@ -205,14 +196,14 @@ class Framework implements \H5PFrameworkInterface, SingletonInterface
      * Fetches a file from a remote server using HTTP GET
      *
      * @param string $url Where you want to get or send data.
-     * @param array $data Data to post to the URL.
+     * @param null $data Data to post to the URL.
      * @param bool $blocking Set to 'FALSE' to instantly time out (fire and forget).
      * @param string $stream Path to where the file should be saved.
-     * @return string The content (response body). NULL if something went wrong
+     *
+     * @return bool|string The content (response body). NULL if something went wrong
      */
-    public function fetchExternalData($url, $data = null, $blocking = true, $stream = '')
+    public function fetchExternalData($url, $data = null, $blocking = true, $stream = ''): bool|string
     {
-        $client  = GuzzleClientFactory::getClient();
         $options = [
             // if $blocking is set, we want to do a synchronous request
             'synchronous' => $blocking,
@@ -227,11 +218,26 @@ class Framework implements \H5PFrameworkInterface, SingletonInterface
 
         try {
             // if $data is provided, we do a POST request - otherwise it's a GET
-            $response = $client->request($data === null ? 'GET' : 'POST', $url, $options);
+            $method = $data ? 'POST' : 'GET';
+
+            $requestFactory = GeneralUtility::makeInstance(RequestFactory::class);
+
+            $response = $requestFactory->request(
+                $url,
+                $method,
+                $options
+            );
+
             if ($response->getStatusCode() === 200) {
                 return $response->getBody()->getSize() ? $response->getBody()->getContents() : true;
             }
-        } catch (GuzzleException $e) {
+
+            if ($response->getStatusCode() !== 200) {
+                throw new \RuntimeException(
+                    'Returned status fetching-external-data code is ' . $response->getStatusCode()
+                );
+            }
+        } catch (\Exception $e) {
             $this->setErrorMessage($e->getMessage(), 'failed-fetching-external-data');
         }
         return false;
@@ -260,7 +266,7 @@ class Framework implements \H5PFrameworkInterface, SingletonInterface
      * @throws MethodNotImplementedException
      * @throws MethodNotImplementedException
      */
-    public function setLibraryTutorialUrl($machineName, $tutorialUrl)
+    public function setLibraryTutorialUrl($machineName, $tutorialUrl): void
     {
         // TODO: Implement setLibraryTutorialUrl() method.
         MaintenanceUtility::methodMissing(__CLASS__, __FUNCTION__);
@@ -281,7 +287,8 @@ class Framework implements \H5PFrameworkInterface, SingletonInterface
      * Return messages
      *
      * @param string $type 'info' or 'error'
-     * @return string[]
+     *
+     * @return array|null
      */
     public function getMessages($type): ?array
     {
@@ -346,7 +353,7 @@ class Framework implements \H5PFrameworkInterface, SingletonInterface
     }
 
     /**
-     * @return \H5PCore|CoreFactory|object
+     * @return H5PCore|CoreFactory|object
      */
     protected function getInjectedH5PCore()
     {
@@ -392,8 +399,6 @@ class Framework implements \H5PFrameworkInterface, SingletonInterface
      * @return array
      *   Associative array containing one entry per machine name.
      *   For each machineName there is a list of libraries(with different versions)
-     * @throws \TYPO3\CMS\Extbase\Object\Exception
-     * @throws \TYPO3\CMS\Extbase\Object\Exception
      */
     public function loadLibraries(): array
     {
@@ -428,14 +433,15 @@ class Framework implements \H5PFrameworkInterface, SingletonInterface
      *
      * @param string $machineName
      *   The librarys machine name
-     * @param int $majorVersion
+     * @param null $majorVersion
      *   Optional major version number for library
-     * @param int $minorVersion
+     * @param null $minorVersion
      *   Optional minor version number for library
-     * @return int
+     *
+     * @return int|null The id of the specified library or FALSE
      *   The id of the specified library or FALSE
-     * @throws \Doctrine\DBAL\DBALException
-     * @throws \Doctrine\DBAL\Driver\Exception
+     *
+     * @throws \Doctrine\DBAL\Exception
      */
     public function getLibraryId($machineName, $majorVersion = null, $minorVersion = null): ?int
     {
@@ -480,6 +486,7 @@ class Framework implements \H5PFrameworkInterface, SingletonInterface
      *   A string of file extensions separated by whitespace
      * @param string $defaultLibraryWhitelist
      *   A string of file extensions separated by whitespace
+     *
      * @return string
      */
     public function getWhitelist($isLibrary, $defaultContentWhitelist, $defaultLibraryWhitelist): string
@@ -501,10 +508,12 @@ class Framework implements \H5PFrameworkInterface, SingletonInterface
      *   - majorVersion: The librarys majorVersion
      *   - minorVersion: The librarys minorVersion
      *   - patchVersion: The librarys patchVersion
+     *
      * @return bool
      *   TRUE if the library is a patched version of an existing library
      *   FALSE otherwise
-     * @throws \Doctrine\DBAL\DBALException
+     *
+     * @throws \Doctrine\DBAL\Exception
      */
     public function isPatchedLibrary($library): bool
     {
@@ -527,7 +536,7 @@ class Framework implements \H5PFrameworkInterface, SingletonInterface
 
         $libraryRow = $queryBuilder->select('patch_version')
             ->from('tx_h5p_domain_model_library')->where(...$where)->executeQuery()
-            ->fetch();
+            ->fetchAssociative();
         return $libraryRow['patch_version'] < $library['patchVersion'];
     }
 
@@ -629,9 +638,9 @@ class Framework implements \H5PFrameworkInterface, SingletonInterface
      *
      * @param int $libraryId Library identifier
      *
-     * @throws IllegalObjectTypeException*@throws \TYPO3\CMS\Extbase\Object\Exception
+     * @throws IllegalObjectTypeException
      */
-    public function deleteLibraryDependencies($libraryId)
+    public function deleteLibraryDependencies($libraryId): void
     {
         $dependencies = $this->libraryDependencyRepository->findByLibrary($libraryId);
         foreach ($dependencies as $dependency) {
@@ -714,7 +723,7 @@ class Framework implements \H5PFrameworkInterface, SingletonInterface
      * @throws MethodNotImplementedException
      * @throws MethodNotImplementedException
      */
-    public function resetContentUserData($contentId)
+    public function resetContentUserData($contentId): void
     {
         // TODO: Implement resetContentUserData() method.
         MaintenanceUtility::methodMissing(__CLASS__, __FUNCTION__);
@@ -740,7 +749,7 @@ class Framework implements \H5PFrameworkInterface, SingletonInterface
      * @throws IllegalObjectTypeException
      * @throws UnknownObjectException *@throws \TYPO3\CMS\Extbase\Object\Exception
      */
-    public function saveLibraryDependencies($libraryId, $dependencies, $dependency_type)
+    public function saveLibraryDependencies($libraryId, $dependencies, $dependency_type): void
     {
         $dependingLibrary = $this->libraryRepository->findOneByUid($libraryId);
         if ($dependingLibrary === null) {
@@ -799,7 +808,7 @@ class Framework implements \H5PFrameworkInterface, SingletonInterface
      * @throws MethodNotImplementedException
      * @throws MethodNotImplementedException
      */
-    public function deleteContentData($contentId)
+    public function deleteContentData($contentId): void
     {
         // TODO: Implement deleteContentData() method.
         MaintenanceUtility::methodMissing(__CLASS__, __FUNCTION__);
@@ -811,7 +820,7 @@ class Framework implements \H5PFrameworkInterface, SingletonInterface
      * @param int $contentId
      *   Content Id of the content we'll be deleting library usage for
      */
-    public function deleteLibraryUsage($contentId)
+    public function deleteLibraryUsage($contentId): void
     {
         /** @var ObjectStorage $content */
         $contentDependencies = $this->contentDependencyRepository->findByContent($contentId);
@@ -842,9 +851,9 @@ class Framework implements \H5PFrameworkInterface, SingletonInterface
      *     - dynamic
      *     - preloaded
      *
-     * @throws IllegalObjectTypeException*@throws \TYPO3\CMS\Extbase\Object\Exception
+     * @throws IllegalObjectTypeException
      */
-    public function saveLibraryUsage($contentId, $librariesInUse)
+    public function saveLibraryUsage($contentId, $librariesInUse): void
     {
         /** @var Content $content */
         $content = $this->contentRepository->findOneByUid((int)$contentId);
@@ -951,10 +960,8 @@ class Framework implements \H5PFrameworkInterface, SingletonInterface
      *     - machineName: Machine name for a library this library is depending on
      *     - majorVersion: Major version for a library this library is depending on
      *     - minorVersion: Minor for a library this library is depending on
-     * @throws \TYPO3\CMS\Extbase\Object\Exception
-     * @throws \TYPO3\CMS\Extbase\Object\Exception
      */
-    public function loadLibrary($machineName, $majorVersion, $minorVersion)
+    public function loadLibrary($machineName, $majorVersion, $minorVersion): false|array
     {
         /** @var Library $library */
         $library = $this->libraryRepository->findOneByMachinenameMajorVersionAndMinorVersion($machineName, $majorVersion,
@@ -972,9 +979,7 @@ class Framework implements \H5PFrameworkInterface, SingletonInterface
 
         $library->setLibraryDependencies($dependencies);
 
-        $theLib = $library->toAssocArray();
-
-        return $theLib;
+        return $library->toAssocArray();
     }
 
     /**
@@ -987,7 +992,7 @@ class Framework implements \H5PFrameworkInterface, SingletonInterface
      * @param int $minorVersion
      *   The library's minor version
      *
-     * @return string
+     * @return string|null
      *   The library's semantics as json
      */
     public function loadLibrarySemantics($machineName, $majorVersion, $minorVersion): ?string
@@ -1015,7 +1020,7 @@ class Framework implements \H5PFrameworkInterface, SingletonInterface
      *
      * @throws MethodNotImplementedException
      */
-    public function alterLibrarySemantics(&$semantics, $machineName, $majorVersion, $minorVersion)
+    public function alterLibrarySemantics(&$semantics, $machineName, $majorVersion, $minorVersion): void
     {
         // TODO: Implement alterLibrarySemantics() method.
         MaintenanceUtility::methodMissing(__CLASS__, __FUNCTION__);
@@ -1024,7 +1029,7 @@ class Framework implements \H5PFrameworkInterface, SingletonInterface
     /**
      * Start an atomic operation against the dependency storage
      */
-    public function lockDependencyStorage()
+    public function lockDependencyStorage(): void
     {
         // TODO: Implement lockDependencyStorage() method.
         MaintenanceUtility::methodMissing(__CLASS__, __FUNCTION__);
@@ -1033,7 +1038,7 @@ class Framework implements \H5PFrameworkInterface, SingletonInterface
     /**
      * Stops an atomic operation against the dependency storage
      */
-    public function unlockDependencyStorage()
+    public function unlockDependencyStorage(): void
     {
         // TODO: Implement unlockDependencyStorage() method.
         MaintenanceUtility::methodMissing(__CLASS__, __FUNCTION__);
@@ -1047,7 +1052,7 @@ class Framework implements \H5PFrameworkInterface, SingletonInterface
      *
      * @throws MethodNotImplementedException
      */
-    public function deleteLibrary($library)
+    public function deleteLibrary($library): void
     {
         // TODO: Implement deleteLibrary() method.
         MaintenanceUtility::methodMissing(__CLASS__, __FUNCTION__);
@@ -1074,7 +1079,7 @@ class Framework implements \H5PFrameworkInterface, SingletonInterface
      *   - libraryFullscreen: 1 if fullscreen is supported. 0 otherwise.
      * @throws MethodNotImplementedException
      */
-    public function loadContent($id)
+    public function loadContent($id): array
     {
         // TODO: Implement loadContent() method.
         MaintenanceUtility::methodMissing(__CLASS__, __FUNCTION__);
@@ -1101,9 +1106,8 @@ class Framework implements \H5PFrameworkInterface, SingletonInterface
      *   - preloadedJs(optional): comma separated string with js file paths
      *   - preloadedCss(optional): comma separated sting with css file paths
      *   - dropCss(optional): csv of machine names
-     * @throws \TYPO3\CMS\Extbase\Object\Exception
      */
-    public function loadContentDependencies($id, $type = null)
+    public function loadContentDependencies($id, $type = null): array
     {
         $dependencyArray = [];
         /** @var Content $content */
@@ -1137,9 +1141,8 @@ class Framework implements \H5PFrameworkInterface, SingletonInterface
      *
      * @return mixed
      *   Whatever has been stored as the setting
-     * @throws \TYPO3\CMS\Extbase\Object\Exception
      */
-    public function getOption($name, $default = null)
+    public function getOption($name, $default = null): mixed
     {
         $value   = $default;
         $setting = $this->configSettingRepository->findOneByConfigKey($name);
@@ -1160,9 +1163,8 @@ class Framework implements \H5PFrameworkInterface, SingletonInterface
      *
      * @throws IllegalObjectTypeException
      * @throws UnknownObjectException
-     * @throws \TYPO3\CMS\Extbase\Object\Exception
      */
-    public function setOption($name, $value)
+    public function setOption($name, $value): void
     {
         $setting = $this->configSettingRepository->findOneByConfigKey($name);
         if ($setting instanceof ConfigSetting) {
@@ -1183,7 +1185,7 @@ class Framework implements \H5PFrameworkInterface, SingletonInterface
      * @param array $fields Content fields, e.g. filtered or slug.
      * @throws UnknownObjectException
      */
-    public function updateContentFields($id, $fields)
+    public function updateContentFields($id, $fields): void
     {
         /** @var Content $content */
         $content = $this->contentRepository->findOneByUid($id);
@@ -1207,12 +1209,12 @@ class Framework implements \H5PFrameworkInterface, SingletonInterface
      * library. This means that the content dependencies will have to be rebuilt,
      * and the parameters re-filtered.
      *
-     * @param array $library_id
+     * @param array $library_ids
      *
      * @throws IllegalObjectTypeException
      * @throws UnknownObjectException *@throws \TYPO3\CMS\Extbase\Object\Exception
      */
-    public function clearFilteredParameters($library_ids)
+    public function clearFilteredParameters($library_ids): void
     {
         foreach ($library_ids as $library_id) {
             $contentRecords = $this->contentRepository->findByLibrary((int)$library_id);
@@ -1246,8 +1248,6 @@ class Framework implements \H5PFrameworkInterface, SingletonInterface
      * @param null $skip
      *
      * @return void
-     * @throws \TYPO3\CMS\Extbase\Object\Exception
-     * @throws \TYPO3\CMS\Extbase\Object\Exception
      */
     public function getNumContent($libraryId, $skip = NULL)
     {
@@ -1261,8 +1261,6 @@ class Framework implements \H5PFrameworkInterface, SingletonInterface
      * @param string $slug
      *
      * @return bool
-     * @throws \TYPO3\CMS\Extbase\Object\Exception
-     * @throws \TYPO3\CMS\Extbase\Object\Exception
      */
     public function isContentSlugAvailable($slug): bool
     {
@@ -1282,11 +1280,11 @@ class Framework implements \H5PFrameworkInterface, SingletonInterface
 
     /**
      * Aggregate the current number of H5P authors
-     * @return int
+     *
      * @throws MethodNotImplementedException
      * @throws MethodNotImplementedException
      */
-    public function getNumAuthors()
+    public function getNumAuthors(): void
     {
         // TODO: Implement getNumAuthors() method.
         MaintenanceUtility::methodMissing(__CLASS__, __FUNCTION__);
@@ -1302,9 +1300,9 @@ class Framework implements \H5PFrameworkInterface, SingletonInterface
      * @param array $libraries
      *  List of dependencies(libraries) used to create the key
      *
-     * @throws UnknownObjectException *@throws \TYPO3\CMS\Extbase\Object\Exception
+     * @throws UnknownObjectException
      */
-    public function saveCachedAssets($key, $libraries)
+    public function saveCachedAssets($key, $libraries): void
     {
         /**
          * This is called after FileAdapter->cacheAssets and makes the assignment of
@@ -1344,12 +1342,11 @@ class Framework implements \H5PFrameworkInterface, SingletonInterface
      * @param int $library_id
      *  Library identifier
      *
-     * @return array
      *  List of hash keys removed
      * @throws MethodNotImplementedException
      * @throws MethodNotImplementedException
      */
-    public function deleteCachedAssets($library_id)
+    public function deleteCachedAssets($library_id): void
     {
         // TODO: Implement deleteCachedAssets() method.
         MaintenanceUtility::methodMissing(__CLASS__, __FUNCTION__);
@@ -1382,7 +1379,7 @@ class Framework implements \H5PFrameworkInterface, SingletonInterface
     /**
      * Will trigger after the export file is created.
      */
-    public function afterExportCreated($content, $filename)
+    public function afterExportCreated($content, $filename): void
     {
         // TODO: Implement afterExportCreated() method.
         MaintenanceUtility::methodMissing(__CLASS__, __FUNCTION__);
@@ -1406,10 +1403,14 @@ class Framework implements \H5PFrameworkInterface, SingletonInterface
      * Replaces existing content type cache with the one passed in
      *
      * @param object $contentTypeCache Json with an array called 'libraries'
-     *  containing the new content type cache that should replace the old one.
+     *   containing the new content type cache that should replace the old one.
+     *
+     * @return void
+     *
+     * @throws Exception\NotImplementedException
      * @throws IllegalObjectTypeException
      */
-    public function replaceContentTypeCache($contentTypeCache)
+    public function replaceContentTypeCache($contentTypeCache): void
     {
         // Remove all entries and persist
         $this->contentTypeCacheEntryRepository->removeAll();
@@ -1437,8 +1438,8 @@ class Framework implements \H5PFrameworkInterface, SingletonInterface
     /**
      * Load config for libraries
      *
-     * @param array $libraries
-     * @return array
+     * @param null $libraries
+     * @return array|null
      */
     public function getLibraryConfig($libraries = NULL): ?array
     {
@@ -1450,11 +1451,10 @@ class Framework implements \H5PFrameworkInterface, SingletonInterface
      *
      * @param array $library
      *
-     * @return boolean
      * @throws MethodNotImplementedException
      * @throws MethodNotImplementedException
      */
-    public function libraryHasUpgrade($library)
+    public function libraryHasUpgrade($library): void
     {
         MaintenanceUtility::methodMissing(__CLASS__, __FUNCTION__);
         // TODO: Implement libraryHasUpgrade() method.
@@ -1467,10 +1467,11 @@ class Framework implements \H5PFrameworkInterface, SingletonInterface
      *  Library data as found in library.json files
      * @param string $key
      *  Key that should be found in $libraryData
+     *
      * @return string
      *  file paths separated by ', '
      */
-    private function pathsToCsv($libraryData, $key)
+    private function pathsToCsv(array $libraryData, string $key): string
     {
         if (isset($libraryData[$key])) {
             $paths = [];
@@ -1482,3 +1483,4 @@ class Framework implements \H5PFrameworkInterface, SingletonInterface
         return '';
     }
 }
+

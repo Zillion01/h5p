@@ -14,7 +14,9 @@ return [
         'delete'         => 'deleted',
         'sortby'         => 'machine_name',
         'searchFields'   => 'description,title,machinename',
-        'iconfile'       => 'EXT:h5p/Resources/Public/Icon/h5p.gif',
+        'typeicon_classes' => [
+            'default' => 'h5p-logo'
+        ],
     ],
     'columns'  => [
         'hidden'            => [
